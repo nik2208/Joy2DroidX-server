@@ -1,7 +1,7 @@
 import logging
 from abc import ABC, abstractmethod
 from functools import reduce
-from .ViGEm import client as vigem
+from . import ViGEm as vigem  # Modificato per utilizzare il modulo corretto
 
 
 logger = logging.getLogger('J2DX.Windows')

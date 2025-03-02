@@ -45,6 +45,30 @@ Alternatively, if you have python 3 and pip setup, you can install from [pypi](h
 pip install j2dx
 ```
 
+## Requirements
+
+### Linux
+- Python 3.7+
+- uinput kernel module
+- udev
+
+### Windows
+- Python 3.7+
+- ViGEmBus driver (installed automatically during setup)
+
+## Installation
+
+### Linux
+```bash
+sudo pip install j2dx
+sudo j2dx --setup
+```
+
+### Windows
+```bash
+pip install j2dx
+j2dx --setup  # Requires admin privileges to install ViGEmBus
+```
 
 ## Usage
 

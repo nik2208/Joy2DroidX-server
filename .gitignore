@@ -7,3 +7,5 @@ scratchpad.py
 .vscode/*
 !.vscode/tasks.json
 bin
+venv
+Joy2DroidX-server-0.1.0-x86_64.AppImage
