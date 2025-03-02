@@ -1,23 +1,10 @@
 # Joy2DroidX
 
-#### ARCHIVED
-
-Simply put, I lost interest, therefore I'm archiving this repo.
-The app works and will continue to work. The android app is now
-free on Google Play.
-
-----------------------------------------------------------------
-
-
-![Joy2DroidX](assets/screenshot.png)
-
 Joy2DroidX allows you to use your Android device as a
 virtual Xbox 360 controller or DualShock 4 gamepad.
 
-It consists of a server that runs on Windows and Linux
-and an Android app. While there's nothing preventing the
-app from running on any Android device, it's been only
-tested on Android phones.
+It consists of a server that runs on Windows and Linux and an Flutter app running mostly everywhere. It's been only
+tested on Android phones and on flutter web.
 
 
 ### Server
@@ -26,45 +13,39 @@ The server (this app) listens for input from connected
 Android devices and manages creation/deletion of virtual devices.
 It uses UInput on Linux and [ViGEm](https://github.com/ViGEm) on Windows.
 
-While running the server *does not* require any special
-privileges, the initial setup (setting UInput permissions on Linux and installing driver on Windows) *requires root/administrator* access.
+While running the server *does not* require any special privileges, the initial setup (setting UInput permissions on Linux and installing driver on Windows) *requires root/administrator* access.
 
 ### Client
 
-You can find more information about the Android app as well the sources [here](https://github.com/OzymandiasTheGreat/Joy2DroidX).
+You can find more information about the Android app as well the sources [here](https://github.com/nik2208/joy_2_droid_x).
 
 
 ## Installation
 
-Joy2DroidX is distributed as a portable app on Windows and as an AppImage on Linux.
-You can find latest versions on [releases page](https://github.com/OzymandiasTheGreat/Joy2DroidX-server/releases).
-
-Alternatively, if you have python 3 and pip setup, you can install from [pypi](https://pypi.org/project/j2dx/):
-
-```
-pip install j2dx
-```
+At the moment, you can run the server using poetry and venv.
 
 ## Requirements
 
 ### Linux
-- Python 3.7+
+- Python 3.8+
 - uinput kernel module
 - udev
 
-### Windows
-- Python 3.7+
+### Windows (not updated yet)
+- Python 3.8+
 - ViGEmBus driver (installed automatically during setup)
 
 ## Installation
 
 ### Linux
 ```bash
-sudo pip install j2dx
-sudo j2dx --setup
+python3 -m venv venv
+poetry config virtualenvs.in-project true
+poetry install
+poetry run j2dx -d                 
 ```
 
-### Windows
+### Windows (not updated yet)
 ```bash
 pip install j2dx
 j2dx --setup  # Requires admin privileges to install ViGEmBus
@@ -72,7 +53,7 @@ j2dx --setup  # Requires admin privileges to install ViGEmBus
 
 ## Usage
 
-### First run
+### First run (not updated)
 
 You need to setup the system before the first run.
 Joy2DroidX provides a convenience command that does this for you, it however requires root/administrator access.
