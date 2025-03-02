@@ -8,9 +8,11 @@ import socket
 import asyncio
 from argparse import ArgumentParser
 import qrcode
-# Importa AsyncServer invece di Server per usare il paradigma asincrono
-from socketio import AsyncServer, ASGIApp
-from uvicorn import Config, Server
+# Import FastAPI and updated socketio imports
+import socketio
+from fastapi import FastAPI, Response
+from fastapi.middleware.cors import CORSMiddleware
+import uvicorn
 
 if platform.system() == 'Linux':
     print("Linux system detected")
@@ -23,9 +25,12 @@ elif platform.system() == 'Windows':
     from j2dx.win.setup import setup
     print("Windows modules imported")
 
+# Import compatibility wrapper
+from j2dx.compatibility_wrapper import CompatibilityWrapper
+
 def get_logger(debug):
     logging.basicConfig(level=logging.DEBUG if debug else logging.INFO)
-    wsgi_logger = logging.getLogger('eventlet.wsgi.server')
+    wsgi_logger = logging.getLogger('uvicorn')
     wsgi_logger.setLevel(logging.INFO if debug else logging.ERROR)
     return (logging.getLogger('J2DX.server'), wsgi_logger)
 
@@ -90,27 +95,52 @@ def main():
     CLIENTS = {}
     DEVICES = {}
     
-    # Usa AsyncServer con configurazione moderna, ma senza modificare le versioni
-    sio = AsyncServer(
-        cors_allowed_origins=["*"],
+    # Create FastAPI app
+    app = FastAPI(title="Joy2DroidX Server")
+    
+    # Add CORS middleware with broader settings
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=["*"],  # Allow all origins
+        allow_credentials=True,
+        allow_methods=["*"],
+        allow_headers=["*"],
+    )
+    
+    # Setup Socket.IO with more permissive CORS settings
+    sio = socketio.AsyncServer(
+        async_mode='asgi',
+        cors_allowed_origins="*",  # Allow all origins with string instead of list
         logger=args.debug,
         engineio_logger=args.debug,
-        async_handlers=True,  # Importante per il supporto asincrono
         ping_interval=25000,
         ping_timeout=60000,
-        max_http_buffer_size=10485760
     )
-
-    # Usa gli handler asincroni moderni
+    
+    # Create Socket.IO application with FastAPI integration
+    socket_app = socketio.ASGIApp(sio, app)
+    
+    # Create compatibility wrapper
+    compat = CompatibilityWrapper(sio)
+    
+    # Define event handlers directly with the Socket.IO server
     @sio.event
     async def connect(sid, environ):
         try:
-            # Metodo moderno per ottenere l'indirizzo client
-            scope = environ.get('asgi.scope', {})
-            client_addr = scope.get('client', ['unknown', 0])[0]
+            client_addr = environ.get('REMOTE_ADDR', 'unknown')
+            headers = environ.get('asgi.scope', {}).get('headers', [])
+            
+            # Try to get forwarded IP if behind proxy
+            for name, value in headers:
+                if name == b'x-forwarded-for':
+                    client_addr = value.decode('utf-8').split(',')[0].strip()
+                    break
+                    
             CLIENTS[sid] = client_addr
-        except (KeyError, IndexError):
+        except Exception as e:
+            logger.error(f"Error handling connection: {e}")
             CLIENTS[sid] = 'unknown'
+            
         logger.info(f'Client connected from {CLIENTS[sid]}')
         logger.debug(f'Client {CLIENTS[sid]} sessionId: {sid}')
 
@@ -123,29 +153,85 @@ def main():
             del CLIENTS[sid]
         logger.info(f'Client disconnected: {sid}')
 
+    # Handler for Xbox controller request
     @sio.event
-    async def xbox(sid):
+    async def xbox(sid, *args):
         if sid not in DEVICES:
-            DEVICES[sid] = X360Device(sid, CLIENTS[sid])
-        logger.info(f'Xbox 360 controller created for {CLIENTS[sid]}')
+            DEVICES[sid] = X360Device(sid, CLIENTS.get(sid, 'unknown'))
+        logger.info(f'Xbox 360 controller created for {CLIENTS.get(sid, "unknown")}')
 
+    # Handler for PS4/DS4 controller request
     @sio.event
-    async def ds4(sid):
+    async def ds4(sid, *args):
         if sid not in DEVICES:
-            DEVICES[sid] = DS4Device(sid, CLIENTS[sid])
-        logger.info(f'DualShock 4 controller created for {CLIENTS[sid]}')
+            DEVICES[sid] = DS4Device(sid, CLIENTS.get(sid, 'unknown'))
+        logger.info(f'DualShock 4 controller created for {CLIENTS.get(sid, "unknown")}')
 
+    # Handler for input events
     @sio.event
     async def input(sid, data):
         if sid in DEVICES:
-            DEVICES[sid].send(data['key'], data['value'])
+            try:
+                # Handle both object and separate parameters formats
+                if isinstance(data, dict) and 'key' in data and 'value' in data:
+                    key = data['key']
+                    value = data['value']
+                    
+                    # Enhanced debug logging
+                    input_type = "Button" if isinstance(value, bool) else "Analog"
+                    logger.info(f"[INCOMING] {input_type} Input from {CLIENTS.get(sid, 'unknown')}: {key}={value}")
+                    print(f"[RECEIVED] Input: {key}={value} from {CLIENTS.get(sid, 'unknown')}")
+                    
+                    DEVICES[sid].send(key, value)
+                else:
+                    logger.warning(f"Received invalid input format: {data}")
+                    print(f"[ERROR] Invalid input format received: {data}")
+            except Exception as e:
+                logger.error(f"Error processing input: {e}")
+                print(f"[ERROR] Processing input: {e}")
 
-    # Usa la configurazione ASGI moderna
-    app = ASGIApp(
-        socketio_server=sio,
-        other_asgi_app=None,
-        socketio_path='socket.io'
-    )
+    # HTTP routes for fallback mechanism
+    @app.get("/status")
+    async def status():
+        return {"status": "ok", "clients": len(CLIENTS)}
+    
+    @app.post("/message")
+    async def message(data: dict):
+        try:
+            event = data.get("event")
+            payload = data.get("data", {})
+            
+            if event == "xbox":
+                # Create a temporary session ID for HTTP clients
+                sid = f"http-{len(CLIENTS) + 1}"
+                CLIENTS[sid] = "http-client"
+                DEVICES[sid] = X360Device(sid, "http-client")
+                return {"status": "ok", "controller": "xbox"}
+            
+            elif event == "ds4":
+                # Create a temporary session ID for HTTP clients
+                sid = f"http-{len(CLIENTS) + 1}"
+                CLIENTS[sid] = "http-client"
+                DEVICES[sid] = DS4Device(sid, "http-client")
+                return {"status": "ok", "controller": "ds4"}
+                
+            elif event == "input" and isinstance(payload, dict):
+                # Find an HTTP client to send input to
+                http_sids = [sid for sid in DEVICES if sid.startswith("http-")]
+                if http_sids:
+                    sid = http_sids[0]
+                    DEVICES[sid].send(payload.get("key"), payload.get("value"))
+                    return {"status": "ok"}
+                else:
+                    return {"status": "error", "message": "No HTTP client device found"}
+            
+            elif event == "ping":
+                return {"status": "ok", "pong": True}
+                
+            return {"status": "error", "message": "Unknown event"}
+        except Exception as e:
+            logger.error(f"Error handling HTTP message: {e}")
+            return {"status": "error", "message": str(e)}
 
     try:
         host = args.host or default_host()
@@ -159,24 +245,15 @@ def main():
             colorama.init()
         qr.print_ascii(tty=True)
         
-        # Usa l'API moderna di uvicorn con configurazione esplicita
-        config = Config(
-            app=app,
-            host=host,
+        # Run the Uvicorn server with the FastAPI app
+        config = uvicorn.Config(
+            app=socket_app, 
+            host=host, 
             port=args.port,
             log_level="debug" if args.debug else "info",
-            ws="websockets",
-            workers=1,
-            loop="auto",
-            timeout_keep_alive=120,
-            proxy_headers=True
         )
-        
-        server = Server(config)
-        
-        # Esegui il server in modo asincrono
-        loop = asyncio.new_event_loop()
-        asyncio.set_event_loop(loop)
+        server = uvicorn.Server(config)
+        loop = asyncio.get_event_loop()
         loop.run_until_complete(server.serve())
         
     except PermissionError:
